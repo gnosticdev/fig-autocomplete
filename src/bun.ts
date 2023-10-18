@@ -1,4 +1,8 @@
-import { keyValueList, filepaths } from "@fig/autocomplete-generators";
+import {
+  keyValueList,
+  filepaths,
+  valueList,
+} from "@fig/autocomplete-generators";
 import {
   npmScriptsGenerator,
   npmSearchGenerator,
@@ -65,6 +69,401 @@ const sharedPublicParams: Fig.Option[] = [
     args: {
       name: "path",
       template: "filepaths",
+      description: "Config file to load Bun from (e.g. -c bunfig.toml)",
+      isOptional: true,
+    },
+    description: "Load config (bunfig.toml)",
+  },
+  {
+    name: "--extension-order",
+    args: {
+      name: "order",
+      isVariadic: true,
+      description: "Defaults to: .tsx,.ts,.jsx,.js,.json",
+  },
+  },
+  {
+    name: "--jsx-factory",
+    args: {
+      name: "name",
+      suggestions: ["React.createElement", "h", "preact.h"],
+    },
+    description: `Changes the function called when compiling JSX elements using the classic JSX runtime`,
+  },
+  {
+    name: ["--jsx-fragment"],
+    priority: 49,
+    args: { name: "string", isOptional: true },
+    insertValue: "--jsx-fragment='{cursor}'",
+    description: "Changes the function called when compiling JSX fragments",
+  },
+  {
+    name: "--jsx-import-source",
+    args: { name: "module", suggestions: ["react"] },
+    description: `Declares the module specifier to be used for importing the jsx and jsxs factory functions. Default: "react"`,
+  },
+  {
+    name: "--jsx-runtime",
+    args: { name: "name", suggestions: ["automatic", "classic"] },
+    description: `"automatic" (default) or "classic"`,
+  },
+  {
+    name: ["-r", "--preload"],
+    args: {
+      name: "args",
+      isVariadic: true,
+      description: "Import a module before other modules are loaded",
+    },
+  },
+  {
+    name: "--main-fields",
+    args: {
+      name: "args",
+      isVariadic: true,
+      description:
+        "Main fields to lookup in package.json. Defaults to --target dependent",
+    },
+  },
+  {
+    name: "--no-summary",
+    description: "Don't print a summary (when generating .bun)",
+  },
+  {
+    name: ["-v", "--version"],
+    description: "Print version and exit",
+  },
+  {
+    name: "--revision",
+    description: "Print version with revision and exit",
+  },
+  {
+    name: "--tsconfig-override",
+    args: {
+      name: "overrides",
+      description: "Load tsconfig from path instead of cwd/tsconfig.json",
+    },
+  },
+  {
+    name: ["-d", "--define"],
+    args: {
+      name: "k=v",
+      isVariadic: true,
+    description:
+        "Substitute key=value while parsing, e.g. --define process.env.NODE_ENV=development.",
+    },
+  },
+  {
+    name: ["-e", "--external"],
+    args: {
+      name: "args",
+      isVariadic: true,
+    description:
+        "Exclude module from transpilation (can use * wildcards). ex: -e react",
+  },
+  },
+  {
+    name: ["-l", "--loader"],
+    args: {
+      name: "args",
+      isVariadic: true,
+  description:
+        "Parse files with .ext:loader, e.g. --loader .js:jsx. Valid loaders: js, jsx, ts, tsx, json, toml, text, file, wasm, napi",
+      generators: keyValueList({
+        keys: loaders.map((loader) => "." + loader),
+        values: loaders,
+      }),
+    },
+  },
+    {
+    name: ["-u", "--origin"],
+    args: {
+      name: "args",
+      description: 'Rewrite import URLs to start with --origin. Default: ""',
+    },
+    },
+    {
+    name: ["-p", "--port"],
+    args: {
+      name: "args",
+      description: 'Port to serve Bun\'s dev server on. Default: "3000"',
+    },
+  },
+    {
+    name: "--smol",
+    description: "Use less memory, but run garbage collection more often",
+    },
+    {
+    name: "--minify",
+    description: "Minify (experimental)",
+    priority: 50,
+  },
+  {
+    name: "--minify-syntax",
+    description: "Minify syntax and inline data (experimental)",
+  },
+  {
+    name: "--minify-whitespace",
+    description: "Minify whitespace (experimental)",
+  },
+  {
+    name: "--minify-identifiers",
+    description: "Minify identifiers",
+  },
+  {
+    name: "--no-macros",
+    description:
+      "Disable macros from being executed in the bundler, transpiler and runtime",
+  },
+  {
+    name: "--target",
+    description: "Target environment",
+    priority: 50,
+    args: {
+      generators: valueList({
+        values: ["node", "browser", "bun"],
+      }),
+    },
+    },
+    {
+      name: "--inspect",
+    description: "Activate Bun's debugger for a file.",
+    requiresSeparator: true,
+    args: inspectArgs,
+    },
+    {
+      name: "--inspect-wait",
+      description:
+        "Activate Bun's Debugger, wait for a connection before executing",
+    requiresSeparator: true,
+    args: inspectArgs,
+    },
+    {
+      name: "--inspect-brk",
+      description:
+        "Activate Bun's Debugger, set breakpoint on first line of code and wait",
+    requiresSeparator: true,
+    args: inspectArgs,
+    },
+    {
+    name: "--if-present",
+    description: "Exit if the entrypoint does not exist",
+    },
+];
+
+// note: we are keeping --port and --origin as it can be reused for bun build and elsewhere
+const notBunDevFlags: Fig.Option[] = [
+    {
+    name: "--hot",
+    description:
+      "Enable auto reload in the Bun runtime, test runner, or bundler",
+    priority: 50,
+    },
+    {
+    name: "--watch",
+    description: "Automatically restart the process on file change",
+    priority: 50,
+    },
+    {
+    name: "--no-install",
+    description: "Disable auto install in the Bun runtime",
+    },
+    {
+    name: "-i",
+    description:
+      "Automatically install dependencies and use global cache in Bun's runtime, equivalent to --install=fallback",
+    },
+    {
+    name: "--install",
+      args: {
+      name: "arg",
+      description: `Install dependencies automatically when no node_modules are present, default: "auto". "force" to ignore node_modules, fallback to install any missing`,
+      suggestions: ["auto", "force", "fallback", "disable"],
+      },
+    },
+    {
+    name: "--prefer-offline",
+    description:
+      "Skip staleness checks for packages in the Bun runtime and resolve from disk",
+  },
+  {
+    name: "--prefer-latest",
+    description:
+      "Use the latest matching versions of packages in the Bun runtime, always checking npm",
+  },
+  {
+    name: "--silent",
+    description: "Don't repeat the command for bun run",
+  },
+];
+
+const buildOnlyParams: Fig.Option[] = [
+  {
+    name: "compile",
+    description:
+      "Generate a standalone Bun executable containing your bundled code",
+    priority: 50,
+  },
+  {
+    name: "--format",
+    description:
+      "Specifies the module format to build to. Only esm is supported currently.",
+      args: {
+      name: "args",
+      suggestions: ["esm"],
+      },
+    },
+    {
+    name: "--outdir",
+    description: 'Default to "dist" if multiple files',
+    priority: 50,
+    args: {
+      name: "path",
+    },
+    },
+    {
+    name: "--outfile",
+    description: "Write to a file",
+    priority: 50,
+    args: {
+      name: "path",
+    },
+    },
+    {
+    name: "--root",
+    description: "Root directory used for multiple entry points",
+    args: {
+      name: "path",
+    },
+    },
+    {
+    name: "--splitting",
+    description: "Enable code splitting",
+    priority: 50,
+    },
+    {
+    name: "--public-path",
+    description: "A prefix to be appended to any import paths in bundled code",
+    args: {
+      name: "args",
+    },
+    },
+    {
+    name: "--sourcemap",
+    description: "Build with sourcemaps - 'inline', 'external', or 'none'",
+    requiresSeparator: "-",
+    priority: 50,
+    args: {
+      name: "args",
+      isOptional: true,
+      suggestions: ["inline", "external", "none"],
+    },
+  },
+    {
+    name: "--entry-naming",
+    description:
+      'Customize entry point filenames. Defaults to "[dir]/[name].[ext]"',
+    args: {
+      name: "args",
+    },
+    },
+    {
+    name: "--chunk-naming",
+    description: 'Customize chunk filenames. Defaults to "[name]-[hash].[ext]"',
+    args: {
+      name: "args",
+    },
+    },
+    {
+    name: "--asset-naming",
+    description: 'Customize asset filenames. Defaults to "[name]-[hash].[ext]"',
+    args: {
+      name: "args",
+    },
+    },
+    {
+    name: "--server-components",
+    description: "Enable React Server Components (experimental)",
+  },
+  {
+    name: "--no-bundle",
+    description: "Transpile file only, do not bundle",
+  },
+];
+
+const testOnlyParams: Fig.Option[] = [
+  {
+    name: "--timeout",
+    description: "Set the per-test timeout in milliseconds, default is 5000.",
+    args: {
+      name: "number",
+    },
+  },
+  {
+    name: "--update-snapshots",
+    description: "Update snapshot files",
+  },
+  {
+    name: "--rerun-each",
+    description:
+      "Re-run each test file <NUMBER> times, helps catch certain bugs",
+    args: {
+      name: "number",
+    },
+  },
+  {
+    name: "--only",
+    description: 'Only run tests that are marked with "test.only()"',
+  },
+  {
+    name: "--todo",
+    description: 'Include tests that are marked with "test.todo()"',
+    },
+    {
+    name: "--coverage",
+    description: "Generate a coverage profile",
+    },
+    {
+    name: "--bail",
+    description:
+      "Exit the test suite after <NUMBER> failures. If you do not specify a number, it defaults to 1.",
+    args: {
+      name: "number",
+      isOptional: true,
+    },
+    },
+    {
+    name: ["-t", "--test-name-pattern"],
+    description: "Run only tests with a name that matches the given regex.",
+    args: {
+      name: "pattern",
+    },
+  },
+];
+
+const debugParams: Fig.Option[] = [
+    {
+    name: "--dump-environment-variables",
+    description:
+      "Dump environment variables from .env and process as JSON and quit. Useful for debugging",
+    priority: 49,
+    },
+    {
+    name: "--dump-limits",
+    description: "Dump system limits. Useful for debugging",
+    priority: 49,
+    },
+];
+
+const publicParams = [...sharedPublicParams, ...notBunDevFlags];
+const buildParams = [...publicParams, ...buildOnlyParams, ...debugParams];
+const testParams = [...publicParams, ...testOnlyParams, ...debugParams];
+
+const dependencyOptions: Fig.Option[] = [
+    {
+    name: ["-c", "--config"],
+      args: {
+      name: "path",
+        template: "filepaths",
       isOptional: true,
     },
     description: "Load config (bunfig.toml)",
@@ -82,18 +481,21 @@ const sharedPublicParams: Fig.Option[] = [
     description: "Don't save a lockfile",
   },
   {
+    name: "--save",
+    description: "Save to package.json",
+  },
+  {
     name: "--dry-run",
     description: "Don't install anything",
   },
   {
-    name: "--lockfile",
-    args: { name: "path", template: "filepaths" },
-    description: "Store & load a lockfile at a specific filepath",
+    name: "--frozen-lockfile",
+    description: "Disallow changes to lockfile",
   },
   {
     name: ["-f", "--force"],
     description:
-      "Always request the latest versions from the registry & reinstall all dependenices",
+      "Always request the latest versions from the registry & reinstall all dependencies",
   },
   {
     name: "--cache-dir",
@@ -131,8 +533,8 @@ const sharedPublicParams: Fig.Option[] = [
     name: "--link-native-bins",
     args: {
       name: "str",
-      isVariadic: true,
-    },
+        isVariadic: true,
+      },
     description:
       "Link 'bin' from a matching platform-specific 'optionalDependencies' instead. Default: esbuild, turbo",
   },
@@ -140,182 +542,38 @@ const sharedPublicParams: Fig.Option[] = [
     name: "--help",
     description: "Print the help menu",
   },
+  {
+    name: "--no-progress",
+    description: "Disable the progress bar",
+  },
+  {
+    name: "--no-summary",
+    description: "Don't print a summary",
+  },
+  {
+    name: "--no-verify",
+    description: "Skip verifying integrity of newly downloaded packages",
+  },
+  {
+    name: "--ignore-scripts",
+    description:
+      "Skip lifecycle scripts in the project's package.json (dependency scripts are never run)",
+  },
+  {
+    name: ["-d", "--dev", "-D", "--development"],
+    description: "Install as devDependency",
+    priority: 75,
+    isRepeatable: false,
+  },
+  {
+    name: "--exact",
+    description: "Install exact version",
+    },
+    {
+    name: "--optional",
+    description: "Install as optionalDependency",
+  },
 ];
-
-const spec: Fig.Spec = {
-  name: "bun",
-  description:
-    "A fast bundler, transpiler, JavaScript Runtime and package manager for web software",
-  args: [
-    {
-      name: "file",
-      generators: [
-        // js jsx mjs cjs ts tsx mts cts
-        filepaths({ matches: /\.[mc]?[jt]sx?$/ }),
-        npmScriptsGenerator,
-      ],
-    },
-    {
-      name: "args",
-    },
-  ],
-  options: [
-    {
-      name: "--use",
-      args: { name: "framework", suggestions: ["next"], template: "folders" },
-      description: `Choose a framework, e.g. "--use next". It checks first for a package named "bun-framework-packagename" and then "packagename"`,
-    },
-    {
-      name: "--bunfile",
-      args: { name: "path", template: "filepaths" },
-      description: `Use a .bun file (default: node_modules.bun)`,
-    },
-    {
-      name: "--inspect",
-      description: "Activate Bun's Debugger",
-    },
-    {
-      name: "--inspect-wait",
-      description:
-        "Activate Bun's Debugger, wait for a connection before executing",
-    },
-    {
-      name: "--inspect-brk",
-      description:
-        "Activate Bun's Debugger, set breakpoint on first line of code and wait",
-    requiresSeparator: true,
-    },
-    {
-      name: "--server-bunfile",
-      args: { name: "path", template: "filepaths" },
-      description: `Use a .server.bun file (default: node_modules.server.bun)`,
-    },
-    {
-      name: "--cwd",
-      args: { name: "path", template: "folders" },
-      description: `Absolute path to resolve files & entry points from. This just changes the process' cwd`,
-    },
-    {
-      name: ["-c", "--config"],
-      args: { name: "path", isOptional: true, template: "filepaths" },
-      description: `Config file to load bun from (e.g. -c bunfig.toml`,
-    },
-    {
-      name: "--disable-react-fast-refresh",
-      description: `Disable React Fast Refresh`,
-    },
-    {
-      name: "--disable-hmr",
-      description: `Disable Hot Module Reloading (disables fast refresh too)`,
-    },
-    {
-      name: "--extension-order",
-      args: {
-        name: "order",
-        isVariadic: true,
-        generators: keyValueList({
-          keys: [".tsx", ".ts", ".jsx", ".js", ".json"],
-        }),
-      },
-      description: `Defaults to: .tsx,.ts,.jsx,.js,.json`,
-    },
-    {
-      name: "--jsx-factory",
-      args: {
-        name: "name",
-        suggestions: ["React.createElement", "h", "preact.h"],
-      },
-      description: `Changes the function called when compiling JSX elements using the classic JSX runtime`,
-    },
-    {
-      name: "--jsx-fragment",
-      args: { name: "name", suggestions: ["React.Fragment", "Fragment"] },
-      description: `Changes the function called when compiling JSX fragments`,
-    },
-    {
-      name: "--jsx-import-source",
-      args: { name: "module", suggestions: ["react"] },
-      description: `Declares the module specifier to be used for importing the jsx and jsxs factory functions. Default: "react"`,
-    },
-    {
-      name: "--jsx-production",
-      description: `Use jsx instead of jsxDEV (default) for the automatic runtime`,
-    },
-    {
-      name: "--jsx-runtime",
-      args: { name: "name", suggestions: ["automatic", "classic"] },
-      description: `"automatic" (default) or "classic"`,
-    },
-    {
-      name: "--main-fields",
-      args: { name: "fields", isVariadic: true },
-      description: `Main fields to lookup in package.json. Defaults to --platform dependent`,
-    },
-    {
-      name: "--no-summary",
-      description: `Don't print a summary (when generating .bun)`,
-    },
-    { name: ["-v", "--version"], description: `Print version and exit` },
-    {
-      name: "--platform",
-      args: { name: "name", suggestions: ["browser", "node"] },
-      description: `"browser" or "node". Defaults to "browser"`,
-    },
-    {
-      name: "--public-dir",
-      args: { name: "path", template: "folders" },
-      description: `Top-level directory for .html files, fonts or anything external. Defaults to "<cwd>/public", to match create-react-app and Next.js`,
-    },
-    {
-      name: "--tsconfig-override",
-      args: { name: "path", template: "filepaths" },
-      description: `Load tsconfig from path instead of cwd/tsconfig.json`,
-    },
-    {
-      name: ["-d", "--define"],
-      args: { name: "k:v", isVariadic: true },
-      description: `Substitute K:V while parsing, e.g. --define process.env.NODE_ENV:"development". Values are parsed as JSON`,
-    },
-    {
-      name: ["-e", "--external"],
-      args: { name: "module", isVariadic: true },
-      description: `Exclude module from transpilation (can use * wildcards). ex: -e react`,
-    },
-    { name: ["-h", "--help"], description: `Display this help and exit` },
-    {
-      name: ["-i", "--inject"],
-      args: { name: "module", isVariadic: true },
-      description: `Inject module at the top of every file`,
-    },
-    {
-      name: ["-l", "--loader"],
-      args: { name: "loader", isVariadic: true },
-      description: `Parse files with .ext:loader, e.g. --loader .js:jsx. Valid loaders: jsx, js, json, tsx, ts, css`,
-    },
-    {
-      name: ["-u", "--origin"],
-      args: { name: "url" },
-      description: `Rewrite import URLs to start with --origin. Default: ""`,
-    },
-    {
-      name: ["-p", "--port"],
-      args: { name: "port" },
-      description: `Port to serve bun's dev server on. Default: "3000"`,
-    },
-    { name: "--silent", description: `Don't repeat the command for bun run` },
-  ],
-  subcommands: [
-    {
-      name: "dev",
-      icon: "🛠️",
-      description: "Start a bun Dev server",
-      args: {
-        name: "files",
-        template: "filepaths",
-        isVariadic: true,
-      },
-    },
-    {
 
 /** Generate the globally linked packages stored in $BUN_INSTALL directory */
 const bunLinksGenerator: Fig.Generator = {
@@ -336,13 +594,19 @@ const bunLinksGenerator: Fig.Generator = {
   },
 };
 
+const spec: Fig.Spec = {
       name: "bun",
-      icon: "📦",
-      description: "Bundle dependencies of input files into a '.bun' file",
-      args: {
-        name: "files",
-        template: "filepaths",
-        isVariadic: true,
+  description:
+    "A fast bundler, transpiler, JavaScript Runtime and package manager for web software",
+  icon,
+  args: [
+    {
+      name: "file",
+      generators: [
+        // js jsx mjs cjs ts tsx mts cts
+        filepaths({ matches: /\.[mc]?[jt]sx?$/ }),
+        npmScriptsGenerator,
+      ],
       },
     {
       name: "args",
