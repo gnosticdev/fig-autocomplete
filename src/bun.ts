@@ -761,7 +761,7 @@ const dependencyOptions: Fig.Option[] = [
         {
           name: "symlink",
           description:
-            "Currently used only for file: (and eventually link:) dependencies. To prevent infinite loops, it skips symlinking the node_modules folder. If you install with --backend=symlink, Node.js won't resolve node_modules of dependencies unless each dependency has its own node_modules folder or you pass --preserve-symlinks to node. See Node.js documentation on --preserve-symlinks.",
+            "Currently used only for file: (and eventually link:) dependencies. To prevent infinite loops, it skips symlinking the node_modules folder.",
         },
       ],
     },
@@ -1111,6 +1111,10 @@ const spec: Fig.Spec = {
               name: "--all",
               description:
                 "To print all installed dependencies, including nth-order dependencies",
+            },
+            {
+              name: ["-g", "--global"],
+              description: "List the global dependency tree",
             },
           ],
         },
