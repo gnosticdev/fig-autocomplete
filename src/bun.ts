@@ -3,10 +3,21 @@ import {
   filepaths,
   valueList,
 } from "@fig/autocomplete-generators";
-import { npmScriptsGenerator, dependenciesGenerator } from "./npm";
+import { npmScriptsGenerator } from "./npm";
 import { npxSuggestions } from "./npx";
 import { createCLIsGenerator } from "./yarn";
 
+type SearchTermMatcher =
+  | (RegExpExecArray & {
+      groups?: {
+        scope: string | undefined;
+        searchTerm: string;
+        version: string | undefined;
+      };
+    })
+  | null;
+
+// types keys only for the fields we need, not the entire npms suggestion
 type NpmsSuggestion = {
   package: {
     name: string;
@@ -17,157 +28,147 @@ type NpmsSuggestion = {
 };
 type NpmsSearchResult = {
   total: number;
-  results: NpmsSuggestion[] & { highlight: string };
+  results: NpmsSuggestion[];
 };
-type NpmRegistryPkgMeta = {
+type NpmPackageMeta = {
   "dist-tags": {
-    latest: string | Record<string, string>;
-    [key: string]: string | Record<string, string>;
+    latest: string;
+    [key: string]: string;
   };
   name: string;
   versions: {
     [version: string]: Record<string, any>;
   };
 };
-
-type SearchPkgsParams = {
-  searchTerm: string;
-  scope?: string | undefined;
+type GetPackagesParams = {
+  /** regex exec match array - separates input into npm package parts */
+  searchMatchArray: SearchTermMatcher;
+  /** keywords passed from outside context */
   keywords?: string[] | undefined;
 };
-type SearchPkgsProps = (
-  props: SearchPkgsParams
-) => Promise<NpmsSearchResult | NpmsSuggestion[]>;
 
-const atsInStr = (s: string) => (s.match(/@/g) || []).length;
-const npmSearchHandler: (
-  /** allows passing keywords from outside this generator context */
-  keywords?: string[]
-) => Fig.Generator["custom"] =
+/** custom generator searches npm registry or npms.io api for packages or pkg versions */
+const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
   (keywords) =>
   async (
     _tokens,
     executeShellCommand,
     generatorContext
   ): Promise<Fig.Suggestion[]> => {
-    const { searchTerm } = generatorContext;
-    if (!searchTerm) {
+    const { searchTerm: ctxSearchTerm } = generatorContext;
+
+    if (!ctxSearchTerm) {
       return [];
     }
 
-    const getPackages: SearchPkgsProps = async ({
-      searchTerm,
-      scope,
+    const getPackageMeta = async (searchTerm: string) => {
+      // Remove the last character from the search term, which is the version
+      searchTerm = searchTerm.slice(0, -1);
+      3;
+      const queryVersionsCmd = `curl -s -H "Accept: application/vnd.npm.install-v1+json" https://registry.npmjs.org/${searchTerm}`;
+
+      const pkgMetaData = JSON.parse(
+        await executeShellCommand(queryVersionsCmd)
+      ) as NpmPackageMeta;
+
+      return pkgMetaData;
+    };
+
+    const getPackages = async ({
+      searchMatchArray,
       keywords,
-    }) => {
-      if (!searchTerm) {
+    }: GetPackagesParams): Promise<NpmsSuggestion[]> => {
+      const matchedTerm = searchMatchArray?.[0];
+      if (!matchedTerm) {
         return [];
       }
-      const NPMS_BASE_URL = "https://api.npms.io/v2/search";
+
       const searchParams = {
-        q: searchTerm,
-        size: "20",
+        q: matchedTerm,
+        size: 20,
       };
 
-      console.log(`initial searchTerm: ${searchTerm}`);
-
-      // keywords can only be used on the /search endpoint
-      if (keywords?.length > 0 || !!scope) {
-        // Add optional keyword parameter
-        const keywordParameter =
+      //scope & keywords modifiers can only be used on the /search endpoint
+      const scope = searchMatchArray?.groups?.scope;
+      if (scope || keywords?.length > 0) {
+        const scopeParam = scope ? `+scope:${scope}` : "";
+        /** keywords and scope can only be used on the /search endpoint */
+        const keywordsParam =
           keywords?.length > 0 ? `+keywords:${keywords.join(",")}` : "";
-        const scopeParameter = scope ? `+scope:${scope}` : "";
+        searchParams.q = `${matchedTerm}${scopeParam}${keywordsParam}`;
 
-        searchParams["q"] = `${searchTerm}${keywordParameter}${scopeParameter}`;
-
-        // scope can only be used on the /search endpoint
-        // remove the suggestions endpoint
         const searchUrl =
-          NPMS_BASE_URL +
+          "https://api.npms.io/v2/search" +
           "?" +
-          Object.keys(searchParams)
+          `${Object.keys(searchParams)
             .map((key) => `${key}=${searchParams[key]}`)
-            .join("&");
+            .join("&")}`;
 
         const queryPackagesCmd = `curl -s -H "Accept: application/json" "${searchUrl}"`;
-        console.log(`queryPackagesCmd: /search: ${queryPackagesCmd}`);
-        const result = await executeShellCommand(queryPackagesCmd);
-        return JSON.parse(result) as NpmsSearchResult;
+
+        const searchResult = JSON.parse(
+          await executeShellCommand(queryPackagesCmd)
+        ) as NpmsSearchResult;
+
+        return searchResult.results;
       }
 
+      // ignores qualifiers like :scope, :keywords
       const suggestionUrl =
-        NPMS_BASE_URL +
-        "/suggestions" +
+        "https://api.npms.io/v2/search/suggestions" +
         "?" +
         `${Object.keys(searchParams)
           .map((key) => `${key}=${searchParams[key]}`)
           .join("&")}`;
 
       const queryPackagesCmd = `curl -s -H "Accept: application/json" "${suggestionUrl}"`;
-      console.log(`queryPackagesCmd suggestions: ${queryPackagesCmd}`);
-      const result = await executeShellCommand(queryPackagesCmd);
+      const suggestResult = JSON.parse(
+        await executeShellCommand(queryPackagesCmd)
+      ) as NpmsSuggestion[];
 
-      return JSON.parse(result) as NpmsSuggestion[];
+      return suggestResult;
     };
 
-    const getPkgVersions: (
-      searchTerm: string
-    ) => Promise<NpmRegistryPkgMeta> = async (searchTerm) => {
-      // Remove the last character from the search term, which is the version
-      searchTerm = searchTerm.slice(0, -1);
-      const queryVersions = `curl -s -H "Accept: application/vnd.npm.install-v1+json" https://registry.npmjs.org/${searchTerm}`;
-      return JSON.parse(await executeShellCommand(queryVersions));
-    };
-
-    // Regex to match npm package names with optional scope and version
-    const searchTermRegex =
-      /^(?:@(?<scope>[\w-]+)\/)?(?<searchTerm>@?[\w-\/]+)(?:@(?<version>.*))?/g;
-    const searchTermMatcher = searchTermRegex.exec(
-      searchTerm
+    /* Regex to match npm package names with optional scope and version
+     * - @types/pkg -> {scope: types, scopeTerm: @types/pkg}
+     * - @types/pkg@1.0.0 -> {scope: types,  scopeTerm: pkg, version @1.0.0}
+     * @see https://regex101.com/r/aaF8RF/1
+     */
+    const SEARCH_TERM_REGEX =
+      /^(?:@(?<scope>[\w-]+)\/)?(?<searchTerm>@?[\w\-/]+)?(?<version>@.*)?$/;
+    const searchMatchArray = SEARCH_TERM_REGEX.exec(
+      ctxSearchTerm
     ) as SearchTermMatcher;
 
-    console.log({ searchTermMatcher });
-
-    type SearchTermMatcher =
-      | (RegExpExecArray & {
-          groups?: {
-            scope: string | undefined;
-            searchTerm: string;
-            version: string | undefined;
-          };
-        })
-      | null;
+    if (!searchMatchArray) {
+      return [];
+    }
 
     try {
-      const termMatches = searchTermMatcher?.groups;
-
-      console.log("regex groups: ", termMatches);
-
-      // If there is a version, only return version results from npm registry endpoint.
-      if (termMatches && termMatches.version) {
-        const data = await getPkgVersions(termMatches.searchTerm);
-        // create dist tags suggestions
-        const versions = Object.entries(data["dist-tags"] || {}).map(
+      // version is matched from '@' to end of string, e.g. @latest
+      if (searchMatchArray?.groups?.version) {
+        const pkgMeta = await getPackageMeta(searchMatchArray[0]);
+        // create dist tags suggestions at top
+        const versions = Object.entries(pkgMeta["dist-tags"]).map(
           ([key, value]) => ({
             name: key,
             description: value,
           })
         ) as Fig.Suggestion[];
-        // create versions
+        // version suggestions underneath -> reverse bc latest is last
         versions.push(
-          ...Object.keys(data.versions)
+          ...Object.keys(pkgMeta.versions)
             .map((version) => ({ name: version }) as Fig.Suggestion)
             .reverse()
         );
+
         return versions;
       }
 
-      const results = await getPackages({
+      const suggestions = await getPackages({
+        searchMatchArray,
         keywords,
-        ...termMatches,
       });
-
-      const suggestions = Array.isArray(results) ? results : results.results;
 
       return suggestions.map(
         (item) =>
@@ -183,33 +184,73 @@ const npmSearchHandler: (
   };
 
 // GENERATORS
-const searchNpmGenerator: (tokens?: string[]) => Fig.Generator = (tokens) => {
-  return {
-    trigger: (newToken, oldToken) => {
-      console.log("oldToken: " + oldToken, "newToken: " + newToken);
-      // If the package name starts with '@', we want to trigger when
-      // the 2nd '@' is typed because we'll need to generate version
-      // suggetsions
-      // e.g. @typescript-eslint/types
-      if (oldToken.startsWith("@")) {
-        return !(atsInStr(oldToken) > 1 && atsInStr(newToken) > 1);
-      }
+export const searchNpmGenerator: Fig.Generator = {
+  trigger: (newToken, oldToken) => {
+    switch (newToken) {
+      case "@":
+      case oldToken:
+        return false;
+      default:
+        return true;
+    }
+  },
+  // only change the query term for version suggestions
+  getQueryTerm: (token) => {
+    if (token.lastIndexOf("@") > 0) {
+      return token.split("@").at(-1);
+    }
+    return token;
+  },
+  //   cache: {
+  //     ttl: 1000 * 60 * 60 * 24 * 2, // 2 days
+  //   },
+  custom: npmSearchHandler(),
+};
 
-      // If the package name doesn't start with '@', then trigger when
-      // we see the first '@' so we can generate version suggestions
-      return !(oldToken.includes("@") && newToken.includes("@"));
-    },
-    getQueryTerm: (t) => {
-      if (atsInStr(t) > 1) {
-        return t.split("@")[1];
-      }
-      return t;
-    },
-    //   cache: {
-    //     ttl: 1000 * 60 * 60 * 24 * 2, // 2 days
-    //   },
-    custom: npmSearchHandler(),
-  };
+/**
+ * Similar to the npm dependency generator, but points to different global directory
+ */
+const bunDependencyGenerator: Fig.Generator = {
+  trigger: (newToken) => newToken === "-g" || newToken === "--global",
+  custom: async function (tokens, executeShellCommand) {
+    const isGlobal = tokens.some((t) => t === "-g" || t === "--global");
+
+    const packageParser = (packageContent: Record<string, any>) => {
+      const dependencies = packageContent["dependencies"] ?? {};
+      const devDependencies = packageContent["devDependencies"];
+      const optionalDependencies = packageContent["optionalDependencies"] ?? {};
+      Object.assign(dependencies, devDependencies, optionalDependencies);
+      return Object.keys(dependencies)
+        .filter((pkgName) => {
+          const isListed = tokens.some((current) => current === pkgName);
+          return !isListed;
+        })
+        .map((pkgName) => ({
+          name: pkgName,
+          icon: "📦",
+          description: dependencies[pkgName]
+            ? "dependency"
+            : optionalDependencies[pkgName]
+            ? "optionalDependency"
+            : "devDependency",
+        }));
+    };
+
+    if (isGlobal) {
+      const out = await executeShellCommand(
+        "cat $BUN_INSTALL/install/global/package.json"
+      );
+      const packageContent = JSON.parse(out);
+      return packageParser(packageContent).map((pkg) => ({
+        ...pkg,
+        description: pkg.description + " (global)",
+      })) as Fig.Suggestion[];
+    } else {
+      const out = await executeShellCommand("cat $(npm prefix)/package.json");
+      const packageContent = JSON.parse(out);
+      return packageParser(packageContent);
+    }
+  },
 };
 
 const icon =
@@ -750,7 +791,7 @@ const dependencyOptions: Fig.Option[] = [
         {
           name: "symlink",
           description:
-            "Currently used only for file: (and eventually link:) dependencies. To prevent infinite loops, it skips symlinking the node_modules folder. If you install with --backend=symlink, Node.js won't resolve node_modules of dependencies unless each dependency has its own node_modules folder or you pass --preserve-symlinks to node. See Node.js documentation on --preserve-symlinks.",
+            "Currently used only for file: (and eventually link:) dependencies. To prevent infinite loops, it skips symlinking the node_modules folder.",
         },
       ],
     },
@@ -941,8 +982,7 @@ const spec: Fig.Spec = {
         name: "package",
         isVariadic: true,
         debounce: true,
-        generators: searchNpmGenerator(),
-        filterStrategy: "fuzzy",
+        generators: searchNpmGenerator,
       },
     },
     {
@@ -953,7 +993,7 @@ const spec: Fig.Spec = {
       args: {
         name: "package",
         filterStrategy: "fuzzy",
-        generators: dependenciesGenerator,
+        generators: bunDependencyGenerator,
         isVariadic: true,
       },
     },
@@ -981,7 +1021,7 @@ const spec: Fig.Spec = {
         name: "package",
         filterStrategy: "fuzzy",
         isOptional: true,
-        generators: dependenciesGenerator,
+        generators: bunDependencyGenerator,
         isVariadic: true,
       },
     },
@@ -1100,6 +1140,10 @@ const spec: Fig.Spec = {
               name: "--all",
               description:
                 "To print all installed dependencies, including nth-order dependencies",
+            },
+            {
+              name: ["-g", "--global"],
+              description: "List the global dependency tree",
             },
           ],
         },
