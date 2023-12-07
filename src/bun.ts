@@ -24,7 +24,7 @@ type NpmsSuggestion = {
     version: string;
     description: string;
   };
-  [key: string]: any;
+  [key: string]: unknown;
 };
 type NpmsSearchResult = {
   total: number;
@@ -37,7 +37,7 @@ type NpmPackageMeta = {
   };
   name: string;
   versions: {
-    [version: string]: Record<string, any>;
+    [version: string]: Record<string, unknown>;
   };
 };
 type GetPackagesParams = {
@@ -64,14 +64,18 @@ const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
     const getPackageMeta = async (searchTerm: string) => {
       // Remove the last character from the search term, which is the version
       searchTerm = searchTerm.slice(0, -1);
-      3;
-      const queryVersionsCmd = `curl -s -H "Accept: application/vnd.npm.install-v1+json" https://registry.npmjs.org/${searchTerm}`;
 
-      const pkgMetaData = JSON.parse(
-        await executeShellCommand(queryVersionsCmd)
-      ) as NpmPackageMeta;
+      const { stdout } = await executeShellCommand({
+        command: "curl",
+        args: [
+          "-s",
+          "-H",
+          "Accept: application/vnd.npm.install-v1+json",
+          `https://registry.npmjs.org/${searchTerm}`,
+        ],
+      });
 
-      return pkgMetaData;
+      return JSON.parse(stdout) as NpmPackageMeta;
     };
 
     const getPackages = async ({
@@ -104,13 +108,12 @@ const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
             .map((key) => `${key}=${searchParams[key]}`)
             .join("&")}`;
 
-        const queryPackagesCmd = `curl -s -H "Accept: application/json" "${searchUrl}"`;
+        const { stdout } = await executeShellCommand({
+          command: "curl",
+          args: ["-s", "-H", "Accept: application/json", searchUrl],
+        });
 
-        const searchResult = JSON.parse(
-          await executeShellCommand(queryPackagesCmd)
-        ) as NpmsSearchResult;
-
-        return searchResult.results;
+        return (JSON.parse(stdout) as NpmsSearchResult).results;
       }
 
       // ignores qualifiers like :scope, :keywords
@@ -121,12 +124,12 @@ const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
           .map((key) => `${key}=${searchParams[key]}`)
           .join("&")}`;
 
-      const queryPackagesCmd = `curl -s -H "Accept: application/json" "${suggestionUrl}"`;
-      const suggestResult = JSON.parse(
-        await executeShellCommand(queryPackagesCmd)
-      ) as NpmsSuggestion[];
+      const { stdout } = await executeShellCommand({
+        command: "curl",
+        args: ["-s", "-H", '"Accept: application/json"', suggestionUrl],
+      });
 
-      return suggestResult;
+      return JSON.parse(stdout) as NpmsSuggestion[];
     };
 
     /* Regex to match npm package names with optional scope and version
@@ -136,6 +139,7 @@ const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
      */
     const SEARCH_TERM_REGEX =
       /^(?:@(?<scope>[\w-]+)\/)?(?<searchTerm>@?[\w\-/]+)?(?<version>@.*)?$/;
+
     const searchMatchArray = SEARCH_TERM_REGEX.exec(
       ctxSearchTerm
     ) as SearchTermMatcher;
@@ -148,6 +152,11 @@ const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
       // version is matched from '@' to end of string, e.g. @latest
       if (searchMatchArray?.groups?.version) {
         const pkgMeta = await getPackageMeta(searchMatchArray[0]);
+
+        if (!("versions" in pkgMeta)) {
+          return [];
+        }
+
         // create dist tags suggestions at top
         const versions = Object.entries(pkgMeta["dist-tags"]).map(
           ([key, value]) => ({
@@ -215,9 +224,9 @@ const bunDependencyGenerator: Fig.Generator = {
   custom: async function (tokens, executeShellCommand) {
     const isGlobal = tokens.some((t) => t === "-g" || t === "--global");
 
-    const packageParser = (packageContent: Record<string, any>) => {
+    const packageParser = (packageContent: Record<string, unknown>) => {
       const dependencies = packageContent["dependencies"] ?? {};
-      const devDependencies = packageContent["devDependencies"];
+      const devDependencies = packageContent["devDependencies"] ?? {};
       const optionalDependencies = packageContent["optionalDependencies"] ?? {};
       Object.assign(dependencies, devDependencies, optionalDependencies);
       return Object.keys(dependencies)
@@ -237,19 +246,24 @@ const bunDependencyGenerator: Fig.Generator = {
     };
 
     if (isGlobal) {
-      const out = await executeShellCommand(
-        "cat $BUN_INSTALL/install/global/package.json"
-      );
-      const packageContent = JSON.parse(out);
+      const { stdout } = await executeShellCommand({
+        command: "cat",
+        args: ["$BUN_INSTALL/install/global/package.json", ""],
+      });
+
+      const packageContent = JSON.parse(stdout);
       return packageParser(packageContent).map((pkg) => ({
         ...pkg,
         description: pkg.description + " (global)",
       })) as Fig.Suggestion[];
-    } else {
-      const out = await executeShellCommand("cat $(npm prefix)/package.json");
-      const packageContent = JSON.parse(out);
-      return packageParser(packageContent);
     }
+
+    const { stdout } = await executeShellCommand({
+      command: "command",
+      args: ["cat", "$(npm prefix)/package.json"],
+    });
+
+    return JSON.parse(stdout);
   },
 };
 
@@ -772,26 +786,26 @@ const dependencyOptions: Fig.Option[] = [
       suggestions: [
         {
           name: "hardlink",
-          description: "Default on Linux.",
+          description: "Default on Linux",
         },
         {
           name: "clonefile",
-          description: "Default on macOS.",
+          description: "Default on macOS",
         },
         {
           name: "clonefile_each_dir",
           description:
-            "Similar to clonefile, except it clones each file individually per directory. It is only available on macOS and tends to perform slower than clonefile.",
+            "Similar to clonefile, except it clones each file individually per directory. It is only available on macOS and tends to perform slower than clonefile",
         },
         {
           name: "copyfile",
           description:
-            "The fallback used when any of the above fail. It is the slowest option. On macOS, it uses fcopyfile(); on Linux it uses copy_file_range().",
+            "The fallback used when any of the above fail. It is the slowest option. On macOS, it uses fcopyfile(); on Linux it uses copy_file_range()",
         },
         {
           name: "symlink",
           description:
-            "Currently used only for file: (and eventually link:) dependencies. To prevent infinite loops, it skips symlinking the node_modules folder.",
+            "Currently used only for file: (and eventually link:) dependencies. To prevent infinite loops, it skips symlinking the node_modules folder",
         },
       ],
     },
@@ -846,8 +860,19 @@ const dependencyOptions: Fig.Option[] = [
 
 /** Generate the globally linked packages stored in $BUN_INSTALL directory */
 const bunLinksGenerator: Fig.Generator = {
-  script:
-    "command find $BUN_INSTALL/install/global/node_modules -type l | awk -F 'node_modules/' '{print $2}'",
+  script: {
+    command: "find",
+    args: [
+      "$BUN_INSTALL/install/global/node_modules",
+      "-type",
+      "l",
+      "|",
+      "awk",
+      "-F",
+      "'node_modules/'",
+      "'{print $2}'",
+    ],
+  },
   postProcess(out) {
     return out.split("\n").map((dep) => {
       return {
@@ -1083,8 +1108,24 @@ const spec: Fig.Spec = {
         name: "files",
         generators: {
           // Suggest test files -> https://bun.sh/docs/cli/test. (not in node_modules or .git)
-          script:
-            'command find $(npm prefix) | grep -E ".*.(test|_test|spec|_spec).(ts|tsx|js|jsx)$" | grep -vE ".*/node_modules/.*" | sed "s|$(npm prefix)/||"',
+          script: {
+            command: "find ",
+            args: [
+              "$(npm prefix)",
+              "|",
+              "grep",
+              "-E",
+              '".*.(test|_test|spec|_spec).(ts|tsx|js|jsx)$"',
+              "|",
+              "grep",
+              "-vE",
+              ".*/node_modules/.*",
+              "|",
+              "sed",
+              "s|$(npm prefix)/||",
+            ],
+          },
+
           postProcess(out) {
             return out.split("\n").map((file) => {
               return {
