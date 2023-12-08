@@ -7,15 +7,13 @@ import { npmScriptsGenerator } from "./npm";
 import { npxSuggestions } from "./npx";
 import { createCLIsGenerator } from "./yarn";
 
-type SearchTermMatcher =
-  | (RegExpExecArray & {
-      groups?: {
-        scope: string | undefined;
-        searchTerm: string;
-        version: string | undefined;
-      };
-    })
-  | null;
+type SearchTermMatcher = RegExpExecArray & {
+  groups?: {
+    scope: string | undefined;
+    searchTerm: string;
+    version: string | undefined;
+  };
+};
 
 // types keys only for the fields we need, not the entire npms suggestion
 type NpmsSuggestion = {
@@ -42,7 +40,7 @@ type NpmPackageMeta = {
 };
 type GetPackagesParams = {
   /** regex exec match array - separates input into npm package parts */
-  searchMatchArray: SearchTermMatcher;
+  searchMatchArray: SearchTermMatcher | null;
   /** keywords passed from outside context */
   keywords?: string[] | undefined;
 };
@@ -132,17 +130,16 @@ const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
       return JSON.parse(stdout) as NpmsSuggestion[];
     };
 
-    /* Regex to match npm package names with optional scope and version
-     * - @types/pkg -> {scope: types, scopeTerm: @types/pkg}
-     * - @types/pkg@1.0.0 -> {scope: types,  scopeTerm: pkg, version @1.0.0}
+    /**
+     * Regex to match npm package names with optional scope and version
+     * @example
+     * `@types/pkg@1.0.0` -> {scope: types,  scopeTerm: pkg, version @1.0.0}
      * @see https://regex101.com/r/aaF8RF/1
      */
-    const SEARCH_TERM_REGEX =
+    const regex =
       /^(?:@(?<scope>[\w-]+)\/)?(?<searchTerm>@?[\w\-/]+)?(?<version>@.*)?$/;
 
-    const searchMatchArray = SEARCH_TERM_REGEX.exec(
-      ctxSearchTerm
-    ) as SearchTermMatcher;
+    const searchMatchArray = regex.exec(ctxSearchTerm) as SearchTermMatcher;
 
     if (!searchMatchArray) {
       return [];
@@ -153,7 +150,7 @@ const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
       if (searchMatchArray?.groups?.version) {
         const pkgMeta = await getPackageMeta(searchMatchArray[0]);
 
-        if (!("versions" in pkgMeta)) {
+        if (!("dist-tags" in pkgMeta)) {
           return [];
         }
 
@@ -195,13 +192,10 @@ const npmSearchHandler: (keywords?: string[]) => Fig.Generator["custom"] =
 // GENERATORS
 export const searchNpmGenerator: Fig.Generator = {
   trigger: (newToken, oldToken) => {
-    switch (newToken) {
-      case "@":
-      case oldToken:
-        return false;
-      default:
-        return true;
+    if (newToken === oldToken || newToken === "@") {
+      return false;
     }
+    return true;
   },
   // only change the query term for version suggestions
   getQueryTerm: (token) => {
@@ -210,9 +204,9 @@ export const searchNpmGenerator: Fig.Generator = {
     }
     return token;
   },
-  //   cache: {
-  //     ttl: 1000 * 60 * 60 * 24 * 2, // 2 days
-  //   },
+  cache: {
+    ttl: 1000 * 60 * 60 * 24 * 2, // 2 days
+  },
   custom: npmSearchHandler(),
 };
 
@@ -221,49 +215,68 @@ export const searchNpmGenerator: Fig.Generator = {
  */
 const bunDependencyGenerator: Fig.Generator = {
   trigger: (newToken) => newToken === "-g" || newToken === "--global",
-  custom: async function (tokens, executeShellCommand) {
-    const isGlobal = tokens.some((t) => t === "-g" || t === "--global");
-
-    const packageParser = (packageContent: Record<string, unknown>) => {
+  custom: async function (tokens, executeShellCommand, ctx) {
+    console.log(ctx);
+    // check if global flag is present
+    const packageParser = (
+      packageContent: Record<string, Record<string, string>>
+    ) => {
       const dependencies = packageContent["dependencies"] ?? {};
       const devDependencies = packageContent["devDependencies"] ?? {};
       const optionalDependencies = packageContent["optionalDependencies"] ?? {};
-      Object.assign(dependencies, devDependencies, optionalDependencies);
-      return Object.keys(dependencies)
+      const packages = {
+        ...dependencies,
+        ...devDependencies,
+        ...optionalDependencies,
+      };
+      return Object.keys(packages)
         .filter((pkgName) => {
-          const isListed = tokens.some((current) => current === pkgName);
-          return !isListed;
+          return !tokens.some((current) => current === pkgName);
         })
         .map((pkgName) => ({
           name: pkgName,
           icon: "📦",
+          priority: 100,
           description: dependencies[pkgName]
             ? "dependency"
             : optionalDependencies[pkgName]
             ? "optionalDependency"
             : "devDependency",
-        }));
+        })) as Fig.Suggestion[];
     };
-
-    if (isGlobal) {
-      const { stdout } = await executeShellCommand({
+    if (tokens.some((t) => t === "-g" || t === "--global")) {
+      const { stdout: globalPkgs } = await executeShellCommand({
         command: "cat",
-        args: ["$BUN_INSTALL/install/global/package.json", ""],
+        // eslint-disable-next-line @withfig/fig-linter/no-useless-arrays
+        args: [
+          `${ctx.environmentVariables["BUN_INSTALL"]}/install/global/package.json`,
+        ],
       });
 
-      const packageContent = JSON.parse(stdout);
+      console.log("isGlobal: ", globalPkgs);
+
+      const packageContent = JSON.parse(globalPkgs);
       return packageParser(packageContent).map((pkg) => ({
         ...pkg,
         description: pkg.description + " (global)",
       })) as Fig.Suggestion[];
     }
 
-    const { stdout } = await executeShellCommand({
-      command: "command",
-      args: ["cat", "$(npm prefix)/package.json"],
+    const { stdout: projectRoot } = await executeShellCommand({
+      command: "npm",
+      // eslint-disable-next-line @withfig/fig-linter/no-useless-arrays
+      args: ["prefix"],
     });
 
-    return JSON.parse(stdout);
+    const { stdout } = await executeShellCommand({
+      command: "cat",
+      // eslint-disable-next-line @withfig/fig-linter/no-useless-arrays
+      args: ["package.json"],
+      cwd: projectRoot,
+    });
+
+    const packageContent = JSON.parse(stdout);
+    return packageParser(packageContent);
   },
 };
 
@@ -860,32 +873,28 @@ const dependencyOptions: Fig.Option[] = [
 
 /** Generate the globally linked packages stored in $BUN_INSTALL directory */
 const bunLinksGenerator: Fig.Generator = {
-  script: {
-    command: "find",
-    args: [
-      "$BUN_INSTALL/install/global/node_modules",
-      "-type",
-      "l",
-      "|",
-      "awk",
-      "-F",
-      "'node_modules/'",
-      "'{print $2}'",
-    ],
-  },
-  postProcess(out) {
-    return out.split("\n").map((dep) => {
+  custom: async (_tokens, executeShellCommand, ctx) => {
+    const { stdout } = await executeShellCommand({
+      command: "find",
+      args: [
+        `${ctx.environmentVariables["BUN_INSTALL"]}/install/global/node_modules`,
+        "-type",
+        "l",
+      ],
+    });
+
+    const links = stdout.split("\n");
+    console.log("links", links);
+    // Process the output to extract the part after "node_modules/"
+    return links.map((link) => {
+      const parts = link.split("node_modules/");
       return {
-        name: dep,
+        name: parts[parts.length - 1],
         description:
           "Create a symlink from this pacakage in the global registry to the current project",
         icon: "📦",
       };
     });
-  },
-  cache: {
-    strategy: "stale-while-revalidate",
-    ttl: 60 * 60 * 24 * 3 * 1000, // 3 days
   },
 };
 
@@ -1109,7 +1118,7 @@ const spec: Fig.Spec = {
         generators: {
           // Suggest test files -> https://bun.sh/docs/cli/test. (not in node_modules or .git)
           script: {
-            command: "find ",
+            command: "find",
             args: [
               "$(npm prefix)",
               "|",
