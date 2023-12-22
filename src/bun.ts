@@ -923,13 +923,6 @@ const spec: Fig.Spec = {
       param.name.includes("--hot") ||
       param.name.includes("--watch")
   ),
-  // These flags are used before the subcommand or file
-  options: publicParams.filter(
-    (param) =>
-      param.name.includes("--inspect") ||
-      param.name.includes("--hot") ||
-      param.name.includes("--watch")
-  ),
   subcommands: [
     {
       name: ["c", "create"],
