@@ -1,7 +1,7 @@
 import {
-  keyValueList,
-  filepaths,
-  valueList,
+    filepaths,
+    keyValueList,
+    valueList,
 } from "@fig/autocomplete-generators";
 import { npmScriptsGenerator } from "./npm";
 import { npxSuggestions } from "./npx";
@@ -916,6 +916,13 @@ const spec: Fig.Spec = {
       name: "args",
     },
   ],
+  // These flags are used before the subcommand or file
+  options: publicParams.filter(
+    (param) =>
+      param.name.includes("--inspect") ||
+      param.name.includes("--hot") ||
+      param.name.includes("--watch")
+  ),
   // These flags are used before the subcommand or file
   options: publicParams.filter(
     (param) =>
