@@ -1003,6 +1003,7 @@ const spec: Fig.Spec = {
       name: "run",
       icon,
       description: "Run a package.json script or executable",
+      options: publicParams,
       args: {
         name: "script",
         filterStrategy: "fuzzy",
